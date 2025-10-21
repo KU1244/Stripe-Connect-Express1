@@ -1,0 +1,52 @@
+# dependencies
+/node_modules
+
+# Yarn
+.yarn/
+.pnp.*
+/.pnp
+
+# testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+Thumbs.db
+desktop.ini
+*.pem
+
+# debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+
+# env files
+.env*
+# すべての環境変数ファイル（.env, .env.local, .env.example など）を無視
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE / Editor
+.idea/
+.vscode/
+
+# Caches (Next/SWC/Turbo/Eslint)
+.swp
+.eslintcache
+.sass-cache/
+.turbo/
+.swc/
