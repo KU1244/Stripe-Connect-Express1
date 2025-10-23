@@ -1,4 +1,8 @@
 // prisma/schema.prisma
+// Stripe Connect Express MVP — 4 core models
+// DB: PostgreSQL / Currency: smallest unit (e.g., JPY=¥, USD=¢)
+
+// === Generator / Datasource ===
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,9 +12,87 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// まずは最小のテーブル例（必要に応じて後で増やせばOK）
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  createdAt DateTime @default(now())
+// === Enums ===
+enum OrderStatus {
+  created
+  paid
+  refunded
 }
+
+// === Models ===
+model User {
+  id    String  @id @default(cuid())
+  email String  @unique @db.VarChar(254)
+  name  String? @db.VarChar(120)
+
+  // Relations
+  accounts ConnectedAccount[]
+  orders   Order[]            @relation("Buyer")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+}
+
+model ConnectedAccount {
+  id              String  @id @default(cuid())
+  userId          String
+  stripeAccountId String  @unique @db.VarChar(255) // acct_*** from Stripe
+  chargesEnabled  Boolean @default(false)
+  payoutsEnabled  Boolean @default(false)
+  requirements    Json?
+
+  // Relations
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[] @relation("SellerAccount")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([userId])
+}
+
+model Order {
+  id String @id @default(cuid())
+
+  // Who bought
+  buyerId String?
+  buyer   User?   @relation("Buyer", fields: [buyerId], references: [id], onDelete: SetNull)
+
+  // Who gets paid (via ConnectedAccount)
+  sellerAccountId String
+  sellerAccount   ConnectedAccount @relation("SellerAccount", fields: [sellerAccountId], references: [id], onDelete: Restrict)
+
+  // Stripe linkage
+  paymentIntentId String @unique @db.VarChar(255) // pi_***
+
+  // Money (smallest unit, e.g., JPY=1=¥1, USD=1=1¢)
+  amount      Int // total amount paid by customer
+  platformFee Int // fee captured by the platform
+  currency    String @db.VarChar(3) // e.g., "JPY", "USD"
+
+  status OrderStatus @default(created)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([sellerAccountId])
+  @@index([buyerId])
+}
+
+model WebhookEvent {
+  id            String    @id @default(cuid())
+  stripeEventId String    @unique @db.VarChar(255) // evt_*** (used for idempotency)
+  type          String    @db.VarChar(64) // e.g., payment_intent.succeeded
+  payload       Json
+  processedAt   DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([type])
+}
+
+// === Notes ===
+// - Use INT for money in smallest unit to avoid floating-point errors.
+// - Idempotency for webhooks: store stripeEventId to skip duplicates.
+// - Order.paymentIntentId is unique so replays won't create new orders.
+// - ConnectedAccount.requirements mirrors Stripe's requirements JSON to surface KYC tasks in UI.

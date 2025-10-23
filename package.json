@@ -14,7 +14,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "6.17.1",
+    "@prisma/client": "^6.18.0",
     "@stripe/stripe-js": "8.1.0",
     "motion": "12.23.24",
     "next": "15.4.7",
@@ -34,7 +34,7 @@
     "eslint": "9.9.0",
     "eslint-config-next": "15.5.6",
     "postcss": "8.5.6",
-    "prisma": "6.17.1",
+    "prisma": "^6.18.0",
     "tailwindcss": "4.1.15",
     "typescript": "5.6.3"
   },
