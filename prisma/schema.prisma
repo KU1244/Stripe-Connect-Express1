@@ -1,8 +1,7 @@
-// prisma/schema.prisma
-// Stripe Connect Express MVP — 4 core models
-// DB: PostgreSQL / Currency: smallest unit (e.g., JPY=¥, USD=¢)
+// Stripe Connect Express MVP — 4 core models (+ practical fields)
+// DB: PostgreSQL / Money in smallest unit (e.g., JPY=¥1, USD=¢1)
 
-// === Generator / Datasource ===
+/// === Generator / Datasource ===
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,14 +11,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// === Enums ===
+/// === Enums ===
 enum OrderStatus {
   created
   paid
   refunded
 }
 
-// === Models ===
+/// === Models ===
+
 model User {
   id    String  @id @default(cuid())
   email String  @unique @db.VarChar(254)
@@ -31,15 +31,32 @@ model User {
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([email])
 }
 
 model ConnectedAccount {
-  id              String  @id @default(cuid())
-  userId          String
-  stripeAccountId String  @unique @db.VarChar(255) // acct_*** from Stripe
-  chargesEnabled  Boolean @default(false)
-  payoutsEnabled  Boolean @default(false)
-  requirements    Json?
+  id     String @id @default(cuid())
+  userId String
+
+  /// Stripe account id (e.g., "acct_***"). Required and globally unique.
+  stripeAccountId String @unique @db.VarChar(255)
+
+  /// Operational flags mirrored from Stripe (kept in sync via webhooks).
+  chargesEnabled        Boolean   @default(false)
+  payoutsEnabled        Boolean   @default(false)
+  detailsSubmitted      Boolean   @default(false)
+  onboardingCompletedAt DateTime? @db.Timestamptz(6)
+
+  /// Snapshot fields useful for UI/filters (non-authoritative).
+  country         String? @db.VarChar(2) // e.g., "JP", "US"
+  defaultCurrency String? @db.VarChar(3) // e.g., "JPY", "USD"
+
+  /// Raw requirement info for "please verify" banners, etc.
+  requirements Json?
+
+  /// Optional: capabilities payload snapshot (card_payments, transfers, etc.)
+  capabilities Json?
 
   // Relations
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -49,6 +66,7 @@ model ConnectedAccount {
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
   @@index([userId])
+  @@index([chargesEnabled, payoutsEnabled])
 }
 
 model Order {
@@ -63,36 +81,62 @@ model Order {
   sellerAccount   ConnectedAccount @relation("SellerAccount", fields: [sellerAccountId], references: [id], onDelete: Restrict)
 
   // Stripe linkage
-  paymentIntentId String @unique @db.VarChar(255) // pi_***
+  paymentIntentId   String  @unique @db.VarChar(255) // pi_***
+  checkoutSessionId String? @unique @db.VarChar(255) // cs_*** (optional but handy)
+  transferId        String? @unique @db.VarChar(255) // tr_*** (destination charges)
 
-  // Money (smallest unit, e.g., JPY=1=¥1, USD=1=1¢)
+  // Money (smallest unit, e.g., JPY: 1=¥1, USD: 1=1¢)
   amount      Int // total amount paid by customer
   platformFee Int // fee captured by the platform
-  currency    String @db.VarChar(3) // e.g., "JPY", "USD"
+  currency    String      @db.VarChar(3) // "JPY", "USD"
+  status      OrderStatus @default(created)
 
-  status OrderStatus @default(created)
+  // Debug/trace
+  metadata Json?
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
   @@index([sellerAccountId])
   @@index([buyerId])
+  @@index([createdAt])
 }
 
 model WebhookEvent {
-  id            String    @id @default(cuid())
-  stripeEventId String    @unique @db.VarChar(255) // evt_*** (used for idempotency)
-  type          String    @db.VarChar(64) // e.g., payment_intent.succeeded
-  payload       Json
-  processedAt   DateTime? @db.Timestamptz(6)
+  /// Local primary key
+  id String @id @default(cuid())
+
+  /// Stripe event id for idempotency (e.g., "evt_***")
+  stripeEventId String @unique @db.VarChar(255)
+
+  type        String    @db.VarChar(64) // e.g., "payment_intent.succeeded"
+  payload     Json
+  processedAt DateTime? @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([type])
 }
 
-// === Notes ===
-// - Use INT for money in smallest unit to avoid floating-point errors.
-// - Idempotency for webhooks: store stripeEventId to skip duplicates.
-// - Order.paymentIntentId is unique so replays won't create new orders.
-// - ConnectedAccount.requirements mirrors Stripe's requirements JSON to surface KYC tasks in UI.
+/// === Design Notes ===
+///
+/// 💰 Money Storage
+/// - Use INT in the smallest currency unit to avoid floating-point errors.
+/// - JPY: 1 = ¥1 (no decimals). USD: 1 = 1¢ (100 = $1).
+///
+/// 🔄 Idempotency
+/// - WebhookEvent.stripeEventId prevents duplicate webhook processing.
+/// - Order.paymentIntentId prevents duplicated order creation.
+///
+/// 🔐 Data Integrity
+/// - ConnectedAccount.onDelete: Cascade (deleting a user removes their accounts).
+/// - Order.buyer.onDelete: SetNull (keep history if buyer is removed).
+/// - Order.sellerAccount.onDelete: Restrict (can't remove an account with sales).
+///
+/// 🧭 Helpful Snapshots
+/// - ConnectedAccount.country / defaultCurrency / capabilities / requirements
+///   are snapshots to render UI and filters quickly. The source of truth is Stripe.
+///
+/// 📦 Practical Links
+/// - Order.checkoutSessionId and Order.transferId are optional but very useful
+///   for audits and cross-checking in Stripe Dashboard.
