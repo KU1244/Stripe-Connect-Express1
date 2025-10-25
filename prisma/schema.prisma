@@ -1,5 +1,17 @@
-// Stripe Connect Express MVP — 4 core models (+ practical fields)
-// DB: PostgreSQL / Money in smallest unit (e.g., JPY=¥1, USD=¢1)
+/// Stripe Connect Express MVP — Tier 1 (happy path) + Tier 2 (refunds)
+/// DB: PostgreSQL
+/// Money: store as INT in the smallest unit (USD → 1 = 1 cent)
+///
+/// Scope
+/// - Tier 1: Prove you can do Express with destination charges + application fee
+/// - Tier 2: Prove you can handle refunds (minimal)
+///
+/// Notes
+/// - This file is intentionally lean but production-sane:
+///   - Idempotency via unique Stripe IDs
+///   - Minimal auditability (WebhookEvent)
+///   - Refund history + aggregated refunded total on Order
+/// - Currency is assumed to be USD for the demo. Enforce at the app layer.
 
 /// === Generator / Datasource ===
 generator client {
@@ -12,10 +24,21 @@ datasource db {
 }
 
 /// === Enums ===
+
 enum OrderStatus {
+  // Business-level state (simple for demo)
   created
   paid
   refunded
+}
+
+enum PaymentState {
+  // Stripe PI/Charge lifecycle (simplified for Tier 2)
+  processing
+  succeeded
+  failed
+  refunded_partial
+  refunded_full
 }
 
 /// === Models ===
@@ -49,14 +72,17 @@ model ConnectedAccount {
   onboardingCompletedAt DateTime? @db.Timestamptz(6)
 
   /// Snapshot fields useful for UI/filters (non-authoritative).
-  country         String? @db.VarChar(2) // e.g., "JP", "US"
-  defaultCurrency String? @db.VarChar(3) // e.g., "JPY", "USD"
+  country         String? @db.VarChar(2) // e.g., "US"
+  defaultCurrency String? @db.VarChar(3) // e.g., "USD"
 
   /// Raw requirement info for "please verify" banners, etc.
   requirements Json?
 
   /// Optional: capabilities payload snapshot (card_payments, transfers, etc.)
   capabilities Json?
+
+  // (Optional but handy for demos/audits)
+  livemode Boolean @default(false)
 
   // Relations
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -72,7 +98,7 @@ model ConnectedAccount {
 model Order {
   id String @id @default(cuid())
 
-  // Who bought
+  // Who bought (optional for guest checkout)
   buyerId String?
   buyer   User?   @relation("Buyer", fields: [buyerId], references: [id], onDelete: SetNull)
 
@@ -80,26 +106,52 @@ model Order {
   sellerAccountId String
   sellerAccount   ConnectedAccount @relation("SellerAccount", fields: [sellerAccountId], references: [id], onDelete: Restrict)
 
-  // Stripe linkage
+  // Stripe linkage (idempotency & deep-link to Dashboard)
   paymentIntentId   String  @unique @db.VarChar(255) // pi_***
   checkoutSessionId String? @unique @db.VarChar(255) // cs_*** (optional but handy)
-  transferId        String? @unique @db.VarChar(255) // tr_*** (destination charges)
+  transferId        String? @unique @db.VarChar(255) // tr_*** (for destination charges)
+  chargeId          String? @unique @db.VarChar(255) // ch_*** (formed when PI succeeds)
 
-  // Money (smallest unit, e.g., JPY: 1=¥1, USD: 1=1¢)
-  amount      Int // total amount paid by customer
-  platformFee Int // fee captured by the platform
-  currency    String      @db.VarChar(3) // "JPY", "USD"
+  // Money (USD → cents)
+  amount      Int // total amount collected from the buyer (>= 0)
+  platformFee Int // fee kept by the platform (>= 0, and <= amount) — validate in app code
+  currency    String      @default("USD") @db.VarChar(3) // assume USD for portfolio/demo
   status      OrderStatus @default(created)
+
+  // Payments lifecycle (Tier 2)
+  paymentState   PaymentState @default(processing)
+  amountRefunded Int          @default(0) // aggregated refunds in cents
 
   // Debug/trace
   metadata Json?
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  Refund    Refund[]
 
   @@index([sellerAccountId])
   @@index([buyerId])
   @@index([createdAt])
+  @@index([paymentState, createdAt])
+}
+
+model Refund {
+  /// Tier 2: minimal refund history to prove partial/full refunds handling.
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  stripeRefundId       String  @unique @db.VarChar(255) // re_***
+  amount               Int // cents
+  balanceTransactionId String? @db.VarChar(255) // txn_*** (for audit)
+
+  reason   String? @db.VarChar(64) // e.g., "requested_by_customer" (optional)
+  metadata Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([orderId, createdAt])
 }
 
 model WebhookEvent {
@@ -109,34 +161,17 @@ model WebhookEvent {
   /// Stripe event id for idempotency (e.g., "evt_***")
   stripeEventId String @unique @db.VarChar(255)
 
-  type        String    @db.VarChar(64) // e.g., "payment_intent.succeeded"
-  payload     Json
+  livemode   Boolean @default(false) // prod/test split for sanity
+  type       String  @db.VarChar(64) // e.g., "payment_intent.succeeded"
+  requestId  String? @db.VarChar(255) // req_*** (optional)
+  apiVersion String? @db.VarChar(32) // payload version (optional)
+  payload    Json // raw event for audit / reprocessing
+
+  // Basic processing markers (handy for retries in the app)
   processedAt DateTime? @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([type])
+  @@index([type, createdAt])
+  @@index([processedAt])
 }
-
-/// === Design Notes ===
-///
-/// 💰 Money Storage
-/// - Use INT in the smallest currency unit to avoid floating-point errors.
-/// - JPY: 1 = ¥1 (no decimals). USD: 1 = 1¢ (100 = $1).
-///
-/// 🔄 Idempotency
-/// - WebhookEvent.stripeEventId prevents duplicate webhook processing.
-/// - Order.paymentIntentId prevents duplicated order creation.
-///
-/// 🔐 Data Integrity
-/// - ConnectedAccount.onDelete: Cascade (deleting a user removes their accounts).
-/// - Order.buyer.onDelete: SetNull (keep history if buyer is removed).
-/// - Order.sellerAccount.onDelete: Restrict (can't remove an account with sales).
-///
-/// 🧭 Helpful Snapshots
-/// - ConnectedAccount.country / defaultCurrency / capabilities / requirements
-///   are snapshots to render UI and filters quickly. The source of truth is Stripe.
-///
-/// 📦 Practical Links
-/// - Order.checkoutSessionId and Order.transferId are optional but very useful
-///   for audits and cross-checking in Stripe Dashboard.
