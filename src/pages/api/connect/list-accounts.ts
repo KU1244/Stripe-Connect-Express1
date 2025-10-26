@@ -1,25 +1,25 @@
+// src/pages/api/connect/list-accounts.ts
+// GET /api/connect/list-accounts?userId=xxx
+// List all connected accounts (admin/dashboard view)
 import type { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
 
-// Helper: normalize query param
+// Extract first value from query params (handle array case)
 const first = (v: string | string[] | undefined): string | undefined =>
     Array.isArray(v) ? v[0] : v;
 
-/**
- * Admin-oriented listing endpoint for Connected Accounts.
- * - Optional filters: ?userId=... or ?stripeAccountId=acct_...
- * - Returns connected accounts with minimal user info.
- */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    // Only allow GET requests
     if (req.method !== "GET") {
         res.setHeader("Allow", "GET");
         return res.status(405).json({ error: "Method Not Allowed" });
     }
 
+    // Optional filters from query params
     const userId = first(req.query.userId);
     const stripeAccountId = first(req.query.stripeAccountId);
 
-    // Build WHERE clause against ConnectedAccount (not User)
+    // Build WHERE clause
     const where =
         stripeAccountId != null
             ? { stripeAccountId }
@@ -28,15 +28,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 : {};
 
     try {
+        // Fetch connected accounts with user info
         const rows = await prisma.connectedAccount.findMany({
             where,
             include: {
-                user: { select: { id: true, email: true, name: true } }, // minimal PII
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        name: true
+                    }
+                },
             },
             orderBy: { createdAt: "desc" },
-            take: 200, // avoid accidental huge responses
+            take: 200, // Limit to prevent huge responses
         });
 
+        // Return simplified response
         return res.status(200).json(
             rows.map(r => ({
                 stripeAccountId: r.stripeAccountId,
@@ -52,6 +60,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         );
     } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
-        return res.status(500).json({ error: "Failed to list connected accounts", message });
+        return res.status(500).json({
+            error: "Failed to list connected accounts",
+            message
+        });
     }
 }
