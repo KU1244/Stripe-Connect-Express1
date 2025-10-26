@@ -458,12 +458,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Built with ❤️ using [Stripe Connect](https://stripe.com/connect)
+- Built with  using [Stripe Connect](https://stripe.com/connect)
 - Inspired by modern SaaS architectures
 - Special thanks to the open-source community
 
 ---
 
-**Project Status**: ✅ Production Ready  
+**Project Status**:  Production Ready  
 **Last Updated**: October 2025  
 **Maintainer**: [@yourusername](https://github.com/yourusername)
