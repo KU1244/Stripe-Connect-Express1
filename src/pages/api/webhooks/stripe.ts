@@ -1,8 +1,5 @@
-// Stripe webhook endpoint (raw body, signature verification, idempotent processing)
-// - Do NOT use body parser: we must verify the raw payload
-// - No local throw/catch in the handler; use a non-throwing helper
-// - Safe JSON storage (no `any`) and duplicate-event guard
-
+// src/pages/api/webhooks/stripe.ts
+// Stripe webhook handler with signature verification and idempotent processing
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Readable } from "node:stream";
 import Stripe from "stripe";
@@ -10,11 +7,11 @@ import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { toJson, toJsonOrUndefined } from "@/lib/json";
 
+// Disable body parser to read raw request body for signature verification
 export const config = { api: { bodyParser: false } } as const;
-// Read-once so TS/ESLint don’t flag it as unused (no runtime effect)
 void config;
 
-// Read raw request body into a Buffer (needed for signature verification)
+// Read raw request body into Buffer (required for Stripe signature check)
 async function readBuffer(readable: Readable): Promise<Buffer> {
     const chunks: Uint8Array[] = [];
     for await (const chunk of readable) {
@@ -23,7 +20,7 @@ async function readBuffer(readable: Readable): Promise<Buffer> {
     return Buffer.concat(chunks);
 }
 
-// Non-throwing wrapper for signature verification.
+// Safe wrapper for signature verification (no throw)
 function constructEventSafe(
     buf: Buffer,
     sig: string,
@@ -39,23 +36,25 @@ function constructEventSafe(
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-    // Method guard
+    // Only allow POST method
     if (req.method !== "POST") {
         res.setHeader("Allow", "POST");
         return res.status(405).json({ error: "Method Not Allowed" });
     }
 
-    // Header & secret guards (no throw)
+    // Check for signature header
     const sig = req.headers["stripe-signature"];
     if (typeof sig !== "string") {
         return res.status(400).json({ error: "Missing stripe-signature header" });
     }
+
+    // Check for webhook secret in environment
     const secret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!secret) {
         return res.status(500).json({ error: "Missing STRIPE_WEBHOOK_SECRET" });
     }
 
-    // Verify signature via non-throwing helper
+    // Verify Stripe signature
     const buf = await readBuffer(req);
     const verified = constructEventSafe(buf, sig, secret);
     if (!verified.ok) {
@@ -63,13 +62,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     const event = verified.event;
 
-    // Idempotency: skip if we've already processed this `evt_***`
+    // Prevent duplicate event processing (idempotency check)
     const seen = await prisma.webhookEvent.findUnique({ where: { stripeEventId: event.id } });
     if (seen) {
         return res.status(200).json({ received: true, duplicate: true });
     }
 
-    // Persist the event payload safely (stringify→parse) for Prisma JSON type
+    // Persist event payload for audit trail and retry capability
     await prisma.webhookEvent.create({
         data: { stripeEventId: event.id, type: event.type, payload: toJson(event) },
     });
@@ -77,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
         switch (event.type) {
             case "checkout.session.completed": {
-                // Attach Checkout Session id to existing Order (found by PaymentIntent id)
+                // Link Checkout Session ID to Order (if Order exists from payment_intent event)
                 const session = event.data.object as Stripe.Checkout.Session;
                 const piId =
                     typeof session.payment_intent === "string"
@@ -91,22 +90,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                             data: { checkoutSessionId: session.id },
                         })
                         .catch(() => {
-                            // Order may not exist yet; safe to ignore (will be upserted on PI event)
+                            // Order may not exist yet (PaymentIntent event might come later)
                         });
                 }
                 break;
             }
 
             case "payment_intent.succeeded": {
-                // Create/Update an Order row based on the PaymentIntent (idempotent via upsert)
+                // Create or update Order record when payment completes
                 const pi = event.data.object as Stripe.PaymentIntent;
                 const amount = pi.amount_received ?? pi.amount ?? 0;
-                const currency = (pi.currency ?? "jpy").toUpperCase();
-                const buyerId = pi.metadata?.buyerId || null;
+                const currency = (pi.currency ?? "usd").toUpperCase();
+
+                // FIX: Handle "guest" buyerId properly
+                const rawBuyerId = pi.metadata?.buyerId || null;
+                const buyerId = rawBuyerId && rawBuyerId !== "guest" ? rawBuyerId : null;
+
                 const sellerAcct = pi.metadata?.sellerStripeAccountId || "";
                 const platformFee = Number(pi.metadata?.platformFee ?? "0");
 
-                // Try to capture the transfer id from the charge (optional)
+                // Try to capture Transfer ID from Charge (may not exist yet - async)
                 let transferId: string | undefined;
                 const chargeId =
                     typeof pi.latest_charge === "string" ? pi.latest_charge : pi.latest_charge?.id;
@@ -118,13 +121,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                             : ch.transfer?.id ?? undefined;
                 }
 
-                // Resolve our ConnectedAccount row (FK)
+                // Resolve ConnectedAccount ID (foreign key constraint)
                 const seller = await prisma.connectedAccount.findUnique({
                     where: { stripeAccountId: sellerAcct },
                     select: { id: true },
                 });
-                if (!seller) break; // no FK → skip quietly
+                if (!seller) break; // Skip if seller not found (data integrity)
 
+                // Upsert Order (create or update based on PaymentIntent ID)
                 await prisma.order.upsert({
                     where: { paymentIntentId: pi.id },
                     create: {
@@ -151,8 +155,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             case "account.updated": {
+                // Sync ConnectedAccount status when Stripe account changes
                 const account = event.data.object as Stripe.Account;
-                // Update by unique key (stripeAccountId); ignore if not found (first-time events)
                 await prisma.connectedAccount
                     .update({
                         where: { stripeAccountId: account.id },
@@ -167,16 +171,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                             capabilities: toJsonOrUndefined(account.capabilities),
                         },
                     })
-                    .catch(() => {});
+                    .catch(() => {
+                        // Account might not exist in our DB yet (ignore error)
+                    });
                 break;
             }
 
             default:
-                // Acknowledge other events without processing
+                // Acknowledge other event types without processing
                 break;
         }
 
-        // Mark as processed
+        // Mark event as successfully processed
         await prisma.webhookEvent.update({
             where: { stripeEventId: event.id },
             data: { processedAt: new Date() },
@@ -184,7 +190,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         return res.status(200).json({ received: true });
     } catch (e) {
-        // 500 to let Stripe retry on transient processing errors
+        // Return 500 to trigger Stripe retry mechanism
         const message = e instanceof Error ? e.message : "Unknown error";
         return res.status(500).json({ error: "Webhook processing failed", message });
     }
