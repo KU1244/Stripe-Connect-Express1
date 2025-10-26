@@ -31,7 +31,6 @@ lerna-debug.log*
 
 # env files (including database credentials)
 .env*
-!.env.example
 # Allow .env.example but ignore all other .env files
 
 # Vercel
