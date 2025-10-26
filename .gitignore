@@ -29,9 +29,10 @@ yarn-error.log*
 .pnpm-debug.log*
 lerna-debug.log*
 
-# env files
+# env files (including database credentials)
 .env*
-# すべての環境変数ファイル（.env, .env.local, .env.example など）を無視
+!.env.example
+# Allow .env.example but ignore all other .env files
 
 # Vercel
 .vercel
@@ -50,3 +51,43 @@ next-env.d.ts
 .sass-cache/
 .turbo/
 .swc/
+
+# ============================================
+# Database Files (DO NOT COMMIT)
+# ============================================
+
+# SQLite database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# PostgreSQL dump files
+*.sql
+*.dump
+*.backup
+
+# Database backup files
+/backups/
+/database-backups/
+*.bak
+
+# Prisma
+# Note: DO commit migration files in prisma/migrations/
+# Only ignore generated artifacts and local dev DB
+prisma/*.db
+prisma/*.db-journal
+prisma/dev.db*
+
+# Docker volumes (if using Docker for PostgreSQL)
+/docker-data/
+/postgres-data/
+/pgdata/
+
+# ============================================
+# Optional: Prisma Studio
+# ============================================
+# Uncomment if you want to ignore Prisma Studio artifacts
+# .prisma/

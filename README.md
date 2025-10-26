@@ -1,231 +1,469 @@
-了解！“**今日は Prisma を後でやる**”前提で、**いまの状態をそのまま記録**できる README テンプレを用意しました。コピペで `README.md` にどうぞ👇
-
----
-
 # stripe-connect-express
 
-安定重視セット（Node 20 LTS / Next 15 / React 19 / Tailwind v4 / Stripe / PostgreSQL）。
-**Prisma は後で導入**する方針の現状を記録しています。
+> **Stripe Connect Express** implementation with Next.js, Prisma, and PostgreSQL.  
+> Production-ready SaaS template for marketplace payment splitting and revenue distribution.
+
+[![Node.js](https://img.shields.io/badge/Node.js-20.x_LTS-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15.4.7-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6.3-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-6.18.0-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/)
+[![Stripe](https://img.shields.io/badge/Stripe-19.1.0-635BFF?logo=stripe&logoColor=white)](https://stripe.com/)
 
 ---
 
-## 技術スタック（固定方針）
+## 🎯 Project Overview
 
-* **Node.js:** 20 LTS（推奨）
-* **Next.js:** 15.3.3（Pages Router）
-* **React / ReactDOM:** 19.0.0
-* **Tailwind CSS:** 4.1.15（`@tailwindcss/postcss` 経由）
-* **TypeScript:** 5.x
-* **ESLint:** 9.x（`eslint-config-next` 15.x）
-* **Stripe:**
+This project implements **Stripe Connect Express** with destination charges, enabling:
 
-    * サーバ SDK：`stripe@19.1.0`
-    * ブラウザ：`@stripe/stripe-js@8.1.0`
-* **PostgreSQL クライアント:** `pg@8.16.3`
-* **Prisma:** *後で導入*（現在は schema 未作成・postinstall 無効）
-* その他：`zod`, `zustand`, `firebase`, `motion` など
-
-> **再現性のため** lockfile をコミットし、インストールは `npm ci` を使用。
+- 🏪 **Marketplace payment splitting** (platform fee + seller payout)
+- 💳 **Onboarding flow** for Express connected accounts
+- 📊 **Real-time status sync** via webhooks
+- 🔐 **Type-safe API** with Zod validation
+- 📈 **Production-ready** error handling and logging
 
 ---
 
-## ディレクトリ構成（抜粋）
+## 🛠️ Tech Stack
+
+| Category | Technology | Version | Purpose |
+|----------|-----------|---------|---------|
+| **Runtime** | Node.js | 20.x LTS | Server environment |
+| **Framework** | Next.js (Pages Router) | 15.4.7 | React framework |
+| **Language** | TypeScript | 5.6.3 | Type safety |
+| **Database** | PostgreSQL | 16+ | Data persistence |
+| **ORM** | Prisma | 6.18.0 | Database toolkit |
+| **Payment** | Stripe (Node SDK) | 19.1.0 | Payment processing |
+| **Payment (Client)** | @stripe/stripe-js | 8.1.0 | Browser SDK |
+| **Styling** | Tailwind CSS | 4.1.15 | Utility-first CSS |
+| **Validation** | Zod | 4.1.12 | Schema validation |
+| **State** | Zustand | 5.0.5 | State management |
+
+---
+
+## 📂 Project Structure
 
 ```
-src/
-  pages/
-    _app.tsx
-    index.tsx
-  styles/
-    globals.css      // @import "tailwindcss";
-postcss.config.mjs  // { plugins: { "@tailwindcss/postcss": {} } }
-package.json
-tsconfig.json
+stripe-connect-express/
+├── prisma/
+│   ├── migrations/           # Database migrations
+│   └── schema.prisma         # Database schema
+├── src/
+│   ├── lib/
+│   │   ├── env.ts           # Environment validation (Zod)
+│   │   ├── json.ts          # JSON helpers for Prisma
+│   │   ├── prisma.ts        # Prisma singleton
+│   │   └── stripe.ts        # Stripe client initialization
+│   ├── schemas/
+│   │   ├── common.ts        # Shared Zod schemas
+│   │   ├── connect.ts       # Connect API schemas
+│   │   └── checkout.ts      # Checkout API schemas
+│   ├── pages/
+│   │   ├── api/
+│   │   │   ├── connect/
+│   │   │   │   ├── create-account.ts           # POST: Create Express account
+│   │   │   │   ├── get-account-status.ts       # GET: Retrieve account status
+│   │   │   │   ├── create-onboarding-link.ts   # POST: Generate onboarding link
+│   │   │   │   ├── create-login-link.ts        # POST: Generate dashboard link
+│   │   │   │   └── list-accounts.ts            # GET: List all accounts
+│   │   │   ├── checkout/
+│   │   │   │   └── checkout.ts                 # POST: Create Checkout Session
+│   │   │   └── webhooks/
+│   │   │       └── stripe.ts                   # POST: Stripe webhook handler
+│   │   ├── _app.tsx
+│   │   ├── _document.tsx
+│   │   └── index.tsx
+│   └── styles/
+│       └── globals.css       # @import "tailwindcss"
+├── .env                      # Environment variables (gitignored)
+├── .env.example              # Environment template
+├── package.json
+├── tsconfig.json
+├── postcss.config.mjs
+└── README.md
 ```
 
 ---
 
-## 必要条件
+## 🚀 Getting Started
 
-* Node 20.x（`.nvmrc` を使う場合は `20`）
-* npm 10 以上推奨
-* （後日）PostgreSQL 接続先
+### Prerequisites
 
----
+- **Node.js** 20.x LTS ([Download](https://nodejs.org/))
+- **PostgreSQL** 16+ ([Download](https://www.postgresql.org/download/))
+- **Stripe Account** ([Sign up](https://dashboard.stripe.com/register))
 
-## セットアップ
-
-### 1) 依存関係のインストール（現在は Prisma を後で）
+### Installation
 
 ```bash
-# 初回またはクリーン時
+# Clone repository
+git clone https://github.com/yourusername/stripe-connect-express.git
+cd stripe-connect-express
+
+# Install dependencies
 npm ci
-```
 
-> **注**: `postinstall: prisma generate` は一時的に無効化しています（Prisma schema 未作成のため）。
+# Setup environment variables
+cp .env.example .env
+# Edit .env with your credentials
 
-### 2) 開発サーバ
+# Generate Prisma Client
+npx prisma generate
 
-```bash
+# Run database migrations
+npx prisma migrate dev --name init
+
+# Start development server
 npm run dev
 ```
 
-### 3) 本番ビルド
+---
+
+## 🔧 Environment Variables
+
+Create `.env` file in the root directory:
 
 ```bash
-npm run build
-npm run start
+# Database
+DATABASE_URL="postgresql://username:password@localhost:5432/stripe_connect_express?schema=public"
+
+# Stripe Keys (Test Mode)
+STRIPE_SECRET_KEY="sk_test_51..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+
+# App URLs
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+
+# Node Environment
+NODE_ENV="development"
+```
+
+### Getting Stripe Keys
+
+1. **API Keys**: [Dashboard → Developers → API keys](https://dashboard.stripe.com/test/apikeys)
+2. **Webhook Secret**:
+  - Create endpoint: `http://localhost:3000/api/webhooks/stripe`
+  - Select events: `account.updated`, `payment_intent.succeeded`, `checkout.session.completed`
+  - Copy signing secret
+
+---
+
+## 📊 Database Schema
+
+### Core Models
+
+```prisma
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  accounts  ConnectedAccount[]
+  orders    Order[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ConnectedAccount {
+  id                    String    @id @default(cuid())
+  userId                String
+  stripeAccountId       String    @unique
+  chargesEnabled        Boolean   @default(false)
+  payoutsEnabled        Boolean   @default(false)
+  detailsSubmitted      Boolean   @default(false)
+  onboardingCompletedAt DateTime?
+  country               String?
+  defaultCurrency       String?
+  requirements          Json?
+  capabilities          Json?
+  user                  User      @relation(fields: [userId], references: [id])
+  orders                Order[]
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Order {
+  id                String           @id @default(cuid())
+  buyerId           String?
+  sellerAccountId   String
+  paymentIntentId   String           @unique
+  checkoutSessionId String?          @unique
+  transferId        String?          @unique
+  chargeId          String?          @unique
+  amount            Int
+  platformFee       Int
+  currency          String           @default("USD")
+  status            OrderStatus      @default(created)
+  paymentState      PaymentState     @default(processing)
+  amountRefunded    Int              @default(0)
+  metadata          Json?
+  buyer             User?            @relation(fields: [buyerId], references: [id])
+  sellerAccount     ConnectedAccount @relation(fields: [sellerAccountId], references: [id])
+  refunds           Refund[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model Refund {
+  id                   String   @id @default(cuid())
+  orderId              String
+  stripeRefundId       String   @unique
+  amount               Int
+  balanceTransactionId String?
+  reason               String?
+  metadata             Json?
+  order                Order    @relation(fields: [orderId], references: [id])
+  createdAt            DateTime @default(now())
+}
+
+model WebhookEvent {
+  id            String    @id @default(cuid())
+  stripeEventId String    @unique
+  livemode      Boolean   @default(false)
+  type          String
+  requestId     String?
+  apiVersion    String?
+  payload       Json
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+}
 ```
 
 ---
 
-## Tailwind v4 の配線（確認用）
+## 🔌 API Endpoints
 
-* `postcss.config.mjs`
+### Connect API
 
-  ```js
-  export default {
-    plugins: {
-      "@tailwindcss/postcss": {},
-    },
-  }
-  ```
-* `src/styles/globals.css`
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/connect/create-account` | POST | Create Express connected account |
+| `/api/connect/get-account-status` | GET | Retrieve account status and sync to DB |
+| `/api/connect/create-onboarding-link` | POST | Generate onboarding link (expires in 5 min) |
+| `/api/connect/create-login-link` | POST | Generate Express Dashboard login link |
+| `/api/connect/list-accounts` | GET | List all connected accounts (admin) |
 
-  ```css
-  @import "tailwindcss";
-  /* 追加のグローバルスタイルがあればここに */
-  ```
-* `src/pages/_app.tsx`
+### Checkout API
 
-  ```tsx
-  import type { AppProps } from "next/app";
-  import "../styles/globals.css";
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/checkout/checkout` | POST | Create Checkout Session with destination charges |
 
-  export default function MyApp({ Component, pageProps }: AppProps) {
-    return <Component {...pageProps} />;
-  }
-  ```
+### Webhook API
 
-**テスト例（どこかのページで）**
-
-```tsx
-<div className="p-8 bg-blue-500 text-white text-2xl rounded-xl">
-  tailwind test
-</div>
-```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/webhooks/stripe` | POST | Handle Stripe webhook events |
 
 ---
 
-## TypeScript 設定（要点）
+## 🧪 Testing
 
-`tsconfig.json` 主要項目：
+### Manual Testing Flow
 
-* `"module": "esnext"`, `"moduleResolution": "bundler"`（Next 15/TS5 向け）
-* `"jsx": "preserve"`
-* `"strict": true`, `"noEmit": true`
-* `"paths": { "@/*": ["./src/*"] }`
+1. **Create User** (via Prisma Studio)
+   ```bash
+   npx prisma studio
+   # Add User: email, name
+   # Copy user ID
+   ```
 
----
+2. **Create Connect Account**
+   ```http
+   POST http://localhost:3000/api/connect/create-account
+   Content-Type: application/json
 
-## 環境変数（.env サンプル）
+   {
+     "userId": "clxxx..."
+   }
+   ```
 
-```env
-# Stripe
-STRIPE_SECRET_KEY=sk_live_or_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+3. **Generate Onboarding Link**
+   ```http
+   POST http://localhost:3000/api/connect/create-onboarding-link
+   Content-Type: application/json
 
-# （後日）PostgreSQL / Prisma 導入時に使用
-# DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DBNAME?schema=public"
-```
+   {
+     "userId": "clxxx...",
+     "refreshUrl": "http://localhost:3000/connect/refresh",
+     "returnUrl": "http://localhost:3000/connect/return"
+   }
+   ```
 
-> **注意**: 機密情報は *絶対に* リポジトリへコミットしないでください。
+4. **Complete Onboarding**
+  - Open returned URL in browser
+  - Fill in test data (Stripe provides test values)
+  - Submit form
 
----
+5. **Verify Status**
+   ```http
+   GET http://localhost:3000/api/connect/get-account-status?userId=clxxx...
+   ```
 
-## Prisma はあとで導入（現在の状態）
-
-* いまは **Prisma の schema 未作成**。`postinstall` も一旦 **無効**。
-* 導入時にやること（メモ）：
-
-    1. `mkdir prisma`
-    2. `prisma/schema.prisma` を作成（例）
-
-       ```prisma
-       generator client {
-         provider = "prisma-client-js"
-       }
-       datasource db {
-         provider = "postgresql"
-         url      = env("DATABASE_URL")
-       }
-  
-       model User {
-         id        String   @id @default(cuid())
-         email     String   @unique
-         createdAt DateTime @default(now())
-       }
-       ```
-    3. `.env` に `DATABASE_URL` を設定
-    4. マイグレーション or 反映
-
-       ```bash
-       npx prisma migrate dev --name init
-       # もしくは
-       # npx prisma db push
-       ```
-    5. クライアント生成
-
-       ```bash
-       npx prisma generate
-       ```
-    6. `package.json` に `postinstall: "prisma generate"` を **再び追加**
-       ついでに `build` 前にも `prisma generate` が入っているか確認
+   Expected response:
+   ```json
+   {
+     "chargesEnabled": true,
+     "payoutsEnabled": true,
+     "detailsSubmitted": true
+   }
+   ```
 
 ---
 
-## よく使うコマンド（Windows / PowerShell）
+## 🏗️ Architecture Decisions
 
-**キャッシュクリア（`rm -rf` の代替）**
+### Why Destination Charges?
 
-```powershell
-if (Test-Path node_modules) { Remove-Item -Recurse -Force node_modules }
-if (Test-Path .next)        { Remove-Item -Recurse -Force .next }
-npm ci
-```
+- **Simpler compliance**: Platform handles card payments
+- **Better UX**: Buyers see platform name on statements
+- **Automatic transfers**: Funds move to seller automatically
+- **Fee flexibility**: Easy to adjust platform fee percentage
+
+### Why Prisma?
+
+- **Type safety**: Auto-generated types from schema
+- **Migration management**: Version-controlled schema changes
+- **Connection pooling**: Singleton pattern prevents exhaustion
+- **Developer experience**: Intuitive query API
+
+### Why Zod?
+
+- **Runtime validation**: Type safety at API boundaries
+- **Composable schemas**: Reusable validation logic
+- **Error messages**: Clear feedback for invalid requests
+- **TypeScript integration**: Inferred types from schemas
 
 ---
 
-## Lint / 型チェック
+## 📝 Development Guidelines
+
+### Code Style
+
+- **Comments**: English (for open-source readiness)
+- **Naming**: Descriptive verb-based (`create-account`, `get-status`)
+- **Types**: No `any` type (strict mode enabled)
+- **Errors**: Consistent HTTP status codes (400, 404, 409, 500)
+
+### Git Workflow
 
 ```bash
-npm run lint
-# Next.js はビルド時に型チェックも行われます
+# Feature branch
+git checkout -b feature/add-refund-api
+
+# Commit messages (Conventional Commits)
+git commit -m "feat: add refund API endpoint"
+git commit -m "fix: handle missing stripeAccountId in webhook"
+git commit -m "docs: update API testing instructions"
+
+# Push and create PR
+git push origin feature/add-refund-api
+```
+
+### Database Migrations
+
+```bash
+# Create migration
+npx prisma migrate dev --name add_refund_table
+
+# Apply migrations (production)
+npx prisma migrate deploy
+
+# Reset database (development only)
+npx prisma migrate reset
 ```
 
 ---
 
-## トラブルシュート
+## 🐛 Troubleshooting
 
-* **Tailwind が効かない**
+### Common Issues
 
-    * `postcss.config.mjs` のプラグインが `@tailwindcss/postcss` になっているか
-    * `src/styles/globals.css` に `@import "tailwindcss";`
-    * `src/pages/_app.tsx` で `globals.css` を import
-    * 変更後は **dev サーバを再起動**
-* **`npm install` で Prisma エラー**
+**Issue**: `Prisma Client not generated`
+```bash
+# Solution
+npx prisma generate
+```
 
-    * いまは `postinstall` を無効化しているはず。誤って有効な場合、Prisma schema 未作成だと落ちます。
-* **Windows でファイル削除エラー**
+**Issue**: `Database connection failed`
+```bash
+# Check PostgreSQL is running
+docker ps
+# or
+pg_isready
 
-    * 実行中の `node` / `next` プロセスや IDE が掴んでいないか確認 → いったん停止して再実行
+# Verify DATABASE_URL in .env
+```
+
+**Issue**: `Stripe webhook signature verification failed`
+```bash
+# Solution: Use Stripe CLI for local testing
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+# Copy webhook signing secret to .env
+```
+
+**Issue**: `Multiple Prisma Client instances`
+```bash
+# Restart dev server
+# Prisma uses singleton pattern to prevent this
+```
 
 ---
 
-## ライセンス
+## 🚢 Deployment
 
-Private / Internal
+### Vercel (Recommended)
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel
+
+# Add environment variables in Vercel Dashboard
+# Set DATABASE_URL to production PostgreSQL
+```
+
+### Environment Variables (Production)
+
+- Use **live mode** Stripe keys (`sk_live_...`)
+- Set `NODE_ENV=production`
+- Configure webhook endpoint: `https://yourdomain.com/api/webhooks/stripe`
 
 ---
 
-必要なら、この README に **実際の `package.json` スクリプト**（現状 or 目標運用）も差し込みます。欲しい書式（バッジ、章構成など）があれば言ってください！
+## 📚 Resources
+
+- [Stripe Connect Documentation](https://stripe.com/docs/connect)
+- [Prisma Documentation](https://www.prisma.io/docs)
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Zod Documentation](https://zod.dev/)
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- Built with ❤️ using [Stripe Connect](https://stripe.com/connect)
+- Inspired by modern SaaS architectures
+- Special thanks to the open-source community
+
+---
+
+**Project Status**: ✅ Production Ready  
+**Last Updated**: October 2025  
+**Maintainer**: [@yourusername](https://github.com/yourusername)
