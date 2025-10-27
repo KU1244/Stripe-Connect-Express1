@@ -12,7 +12,7 @@
 ///   - Minimal auditability (WebhookEvent)
 ///   - Refund history + aggregated refunded total on Order
 /// - Currency is assumed to be USD for the demo. Enforce at the app layer.
-
+//schema.prisma
 /// === Generator / Datasource ===
 generator client {
   provider = "prisma-client-js"
